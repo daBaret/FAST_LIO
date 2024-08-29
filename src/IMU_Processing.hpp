@@ -17,6 +17,7 @@
 #include <pcl/common/transforms.h>
 #include <pcl/kdtree/kdtree_flann.h>
 #include <tf/transform_broadcaster.h>
+#include <tf2_ros/static_transform_broadcaster.h>
 #include <eigen_conversions/eigen_msg.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <sensor_msgs/Imu.h>
@@ -240,6 +241,61 @@ void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikf
   IMUpose.clear();
   IMUpose.push_back(set_pose6d(0.0, acc_s_last, angvel_last, imu_state.vel, imu_state.pos, imu_state.rot.toRotationMatrix()));
 
+  // Compute and publish gravity estimate
+  static tf::TransformBroadcaster br;
+  static unsigned idx = 0;
+  if (!imu_need_init_) {
+    static Eigen::Quaterniond grav_q_init;
+    static bool grav_is_initialized = false;
+    {
+      // Compute rotation that aligns estimated gravity with world Z axis
+      const Eigen::Vector3d grav_e_n =
+          imu_state.grav.get_vect().normalized();
+      const Eigen::Vector3d grav = -Eigen::Vector3d::UnitZ();
+      Eigen::Quaterniond grav_q =
+          Eigen::Quaterniond::FromTwoVectors(grav, grav_e_n).normalized();
+      // Publish current estimate as TF
+      geometry_msgs::TransformStamped msg;
+      msg.header.stamp = v_imu.back()->header.stamp;
+      msg.header.frame_id = "camera_init";
+      msg.transform.translation.x = 0.0;
+      msg.transform.translation.y = 0.0;
+      msg.transform.translation.z = 0.0;
+      msg.transform.rotation.w = grav_q.w();
+      msg.transform.rotation.x = grav_q.x();
+      msg.transform.rotation.y = grav_q.y();
+      msg.transform.rotation.z = grav_q.z();
+      msg.child_frame_id = "gravity_estimate";
+      br.sendTransform(msg);
+      // Store initialization
+      static int cloud_cnt = 0;
+      constexpr int kInitGravityAfterNClouds = 30;
+      if (!grav_is_initialized &&
+          (++cloud_cnt) % kInitGravityAfterNClouds == 0) {
+        ROS_INFO_STREAM(
+            "Pinned gravity_init after " << cloud_cnt << " frames.");
+        grav_q_init = grav_q;
+        grav_is_initialized = true;
+      }
+    }
+    // Republish grav initialization as static TF
+    if (grav_is_initialized) {
+      static tf2_ros::StaticTransformBroadcaster static_br;
+      geometry_msgs::TransformStamped msg;
+      msg.header.stamp = v_imu.back()->header.stamp;
+      msg.header.frame_id = "camera_init";
+      msg.transform.translation.x = 0.0;
+      msg.transform.translation.y = 0.0;
+      msg.transform.translation.z = 0.0;
+      msg.transform.rotation.w = grav_q_init.w();
+      msg.transform.rotation.x = grav_q_init.x();
+      msg.transform.rotation.y = grav_q_init.y();
+      msg.transform.rotation.z = grav_q_init.z();
+      msg.child_frame_id = "gravity_init";
+      static_br.sendTransform(msg);
+    }
+  }
+
   /*** forward propagation at each imu point ***/
   V3D angvel_avr, acc_avr, acc_imu, vel_imu, pos_imu;
   M3D R_imu;
@@ -293,6 +349,21 @@ void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikf
     }
     double &&offs_t = tail->header.stamp.toSec() - pcl_beg_time;
     IMUpose.push_back(set_pose6d(offs_t, acc_s_last, angvel_last, imu_state.vel, imu_state.pos, imu_state.rot.toRotationMatrix()));
+    if (!imu_need_init_) {
+      // Publish forward propagated IMU pose as TF
+      geometry_msgs::TransformStamped msg;
+      msg.header.stamp = tail->header.stamp;
+      msg.header.frame_id = "camera_init";
+      msg.transform.translation.x = imu_state.pos.x();
+      msg.transform.translation.y = imu_state.pos.y();
+      msg.transform.translation.z = imu_state.pos.z();
+      msg.transform.rotation.w = imu_state.rot.w();
+      msg.transform.rotation.x = imu_state.rot.x();
+      msg.transform.rotation.y = imu_state.rot.y();
+      msg.transform.rotation.z = imu_state.rot.z();
+      msg.child_frame_id = "imu_forward_prop";
+      br.sendTransform(msg);
+    }
   }
 
   /*** calculated the pos and attitude prediction at the frame-end ***/
