@@ -257,7 +257,7 @@ void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikf
       // Publish current estimate as TF
       geometry_msgs::TransformStamped msg;
       msg.header.stamp = v_imu.back()->header.stamp;
-      msg.header.frame_id = "camera_init";
+      msg.header.frame_id = "map";
       msg.transform.translation.x = 0.0;
       msg.transform.translation.y = 0.0;
       msg.transform.translation.z = 0.0;
@@ -283,7 +283,7 @@ void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikf
       static tf2_ros::StaticTransformBroadcaster static_br;
       geometry_msgs::TransformStamped msg;
       msg.header.stamp = v_imu.back()->header.stamp;
-      msg.header.frame_id = "camera_init";
+      msg.header.frame_id = "map";
       msg.transform.translation.x = 0.0;
       msg.transform.translation.y = 0.0;
       msg.transform.translation.z = 0.0;
@@ -353,7 +353,7 @@ void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikf
       // Publish forward propagated IMU pose as TF
       geometry_msgs::TransformStamped msg;
       msg.header.stamp = tail->header.stamp;
-      msg.header.frame_id = "camera_init";
+      msg.header.frame_id = "map";
       msg.transform.translation.x = imu_state.pos.x();
       msg.transform.translation.y = imu_state.pos.y();
       msg.transform.translation.z = imu_state.pos.z();
